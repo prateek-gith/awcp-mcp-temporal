@@ -1,0 +1,29 @@
+# AWCP — Python dependencies
+# Requires Python >= 3.10 (uses `X | None` type syntax).
+# Install:  python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+
+# --- Web framework / ASGI (agent service + control surface + MCP SSE app) ---
+fastapi>=0.95.0
+uvicorn[standard]>=0.22.0
+starlette>=0.27.0
+pydantic>=2.2.0
+
+# --- HTTP clients (Ollama runtime + cloud agents) ---
+httpx>=0.24.0
+requests>=2.31.0
+
+# --- Model providers ---
+openai>=1.3.0          # NVIDIA DeepSeek agent + Groq advanced_web_search (OpenAI-compatible)
+
+# --- Tools ---
+ddgs>=1.6.0            # DuckDuckGo web_search
+Pillow>=10.0.0         # llama_vision agent (image handling)
+
+# --- MCP server/client (FastMCP API) ---
+mcp>=1.2.0
+
+# --- Temporal orchestration (worker + workflow + client) ---
+temporalio>=1.12.0
+
+# --- Legacy FastAPI Temporal activities (agent_gateway / registry_checks) ---
+aiohttp>=3.8.4

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWCP — Implementation Guide</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#172033; --border:#334155; --border2:#475569;
+    --text:#f1f5f9; --muted:#94a3b8; --heading:#ffffff;
+    --accent:#3b82f6; --accent2:#60a5fa;
+    --green:#10b981; --green-bg:rgba(16,185,129,.14);
+    --amber:#f59e0b; --amber-bg:rgba(245,158,11,.14);
+    --red:#ef4444; --red-bg:rgba(239,68,68,.14);
+    --cyan:#06b6d4; --cyan-bg:rgba(6,182,212,.14);
+    --purple:#a78bfa; --purple-bg:rgba(167,139,250,.14);
+    --mono:'SFMono-Regular',Consolas,'JetBrains Mono',monospace;
+    --sans:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.65}
+  .page{max-width:920px;margin:0 auto;padding:48px 28px 80px}
+
+  /* Header */
+  .cover{border:1px solid var(--border);border-radius:14px;background:linear-gradient(160deg,#1e293b,#111c30);padding:34px 32px;margin-bottom:36px}
+  .cover .kicker{font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--accent2);font-weight:700}
+  .cover h1{margin:10px 0 6px;font-size:30px;line-height:1.2;color:var(--heading)}
+  .cover p{margin:0;color:var(--muted);font-size:15px}
+  .cover .meta{margin-top:18px;display:flex;gap:10px;flex-wrap:wrap}
+
+  h2{color:var(--heading);font-size:22px;margin:42px 0 6px;padding-bottom:8px;border-bottom:2px solid var(--border)}
+  h3{color:var(--accent2);font-size:17px;margin:26px 0 8px}
+  h4{color:var(--text);font-size:15px;margin:18px 0 6px}
+  p{margin:10px 0}
+  .lead{color:var(--muted);margin-top:4px}
+  ul,ol{margin:10px 0;padding-left:22px}
+  li{margin:6px 0}
+  b,strong{color:#fff}
+  i,em{color:var(--accent2);font-style:italic}
+  code{font-family:var(--mono);font-size:13px;background:#0b1424;border:1px solid var(--border);color:#cbd5e1;padding:1px 6px;border-radius:5px}
+
+  /* Badges */
+  .badge{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:3px 9px;border-radius:100px;vertical-align:middle}
+  .b-new{background:var(--green-bg);color:var(--green)}
+  .b-chg{background:var(--amber-bg);color:var(--amber)}
+  .b-rem{background:var(--red-bg);color:var(--red)}
+  .b-keep{background:var(--cyan-bg);color:var(--cyan)}
+  .b-info{background:var(--purple-bg);color:var(--purple)}
+
+  /* Callouts */
+  .note{border-left:4px solid var(--accent);background:var(--panel2);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+  .tip{border-left:4px solid var(--green);background:var(--green-bg);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+  .warn{border-left:4px solid var(--amber);background:var(--amber-bg);padding:12px 16px;border-radius:0 8px 8px 0;margin:16px 0}
+  .note b,.tip b,.warn b{color:#fff}
+
+  /* Code blocks */
+  pre{background:#0b1424;border:1px solid var(--border);border-radius:10px;padding:16px 18px;overflow-x:auto;margin:14px 0}
+  pre code{background:none;border:none;padding:0;color:#d6deea;font-size:13px;line-height:1.7}
+  .c-cmd{color:#7dd3fc}      /* commands */
+  .c-flag{color:#fca5a5}     /* flags / args */
+  .c-cmt{color:#64748b;font-style:italic} /* comments */
+  .c-path{color:#fcd34d}     /* paths */
+  .c-ok{color:#6ee7b7}
+
+  /* Tables */
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:14px}
+  th,td{text-align:left;padding:10px 12px;border:1px solid var(--border);vertical-align:top}
+  th{background:var(--panel);color:#fff;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  tr:nth-child(even) td{background:rgba(255,255,255,.02)}
+
+  /* Step flow */
+  .flow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:16px 0;font-family:var(--mono);font-size:12.5px}
+  .flow .node{background:var(--panel);border:1px solid var(--border2);padding:8px 12px;border-radius:8px}
+  .flow .arrow{color:var(--accent2);font-weight:700}
+
+  /* Cards */
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:16px}
+  .card h4{margin-top:0}
+  .card p{margin:6px 0 0;color:var(--muted);font-size:13.5px}
+
+  .toc{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px 22px;margin-bottom:10px}
+  .toc h3{margin-top:0;color:#fff}
+  .toc ol{columns:2;column-gap:30px}
+  .toc a{color:var(--accent2);text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+
+  hr{border:none;border-top:1px solid var(--border);margin:36px 0}
+  .small{font-size:12.5px;color:var(--muted)}
+
+  @media print{
+    body{background:#fff;color:#111}
+    .page{max-width:100%}
+    .cover{background:#f1f5f9;border-color:#cbd5e1}
+    .cover h1,h2,h3,h4,b,strong{color:#0f172a}
+    pre{background:#0f172a}
+    .toc{break-inside:avoid}
+  }
+  @media (max-width:640px){.cards,.toc ol{grid-template-columns:1fr;columns:1}}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- COVER -->
+  <div class="cover">
+    <div class="kicker">Agent Workforce Control Plane</div>
+    <h1>Implementation Guide</h1>
+    <p>What was built, what changed, and how to run it — in plain language.</p>
+    <div class="meta">
+      <span class="badge b-new">New work</span>
+      <span class="badge b-chg">Changed</span>
+      <span class="badge b-keep">Unchanged</span>
+      <span class="badge b-info">Reference</span>
+    </div>
+  </div>
+
+  <!-- TOC -->
+  <div class="toc">
+    <h3>Contents</h3>
+    <ol>
+      <li><a href="#what">What this project is</a></li>
+      <li><a href="#bigidea">The big idea (in one minute)</a></li>
+      <li><a href="#change1">Change 1 — Temporal drives the tools</a></li>
+      <li><a href="#change2">Change 2 — Control surface &amp; cleanup</a></li>
+      <li><a href="#pieces">The pieces, explained</a></li>
+      <li><a href="#folders">Folder structure</a></li>
+      <li><a href="#run">How to run it</a></li>
+      <li><a href="#use">How to use the UI</a></li>
+      <li><a href="#trouble">Troubleshooting</a></li>
+      <li><a href="#table">Full change list</a></li>
+      <li><a href="#addagent">Adding a new agent</a></li>
+    </ol>
+  </div>
+
+  <!-- 1 -->
+  <h2 id="what">1. What this project is</h2>
+  <p class="lead">A small system that runs <b>AI agents</b> and puts a <b>governance layer</b> on top of them.</p>
+  <p>You type a question. An agent decides whether it needs to look something up on the web. If it does, it runs a <b>web search tool</b>, reads the results, and writes a clean answer. The <i>governance layer</i> sits above all of this and controls <b>what the agent is allowed to do</b> — for example, it can take away the agent's permission to use tools and make it answer from memory only.</p>
+  <p>There are three agents available: <code>ollama</code> (plain chat), <code>ollama-search</code> (chat + web search), and <code>deepseek</code> / <code>llama-vision</code> (cloud models). The <code>ollama-search</code> agent is the interesting one because it actually uses a tool.</p>
+
+  <!-- 2 -->
+  <h2 id="bigidea">2. The big idea (in one minute)</h2>
+  <p>The system uses <b>Temporal</b> — a workflow engine that runs steps reliably and records every step — as the <i>boss</i> that orchestrates the agent. And it uses an <b>MCP server</b> (Model Context Protocol) as the <i>worker</i> that actually does the small jobs: think, search, write.</p>
+
+  <div class="flow">
+    <span class="node">You (browser)</span><span class="arrow">→</span>
+    <span class="node">Control API</span><span class="arrow">→</span>
+    <span class="node">Temporal (the boss)</span><span class="arrow">→</span>
+    <span class="node">MCP server (the worker)</span><span class="arrow">→</span>
+    <span class="node">Agent + Tools</span>
+  </div>
+
+  <p>The key point: <b>Temporal calls each small job separately</b>, so every step is visible and controllable. This replaced an older design where the agent did everything secretly inside one black box and Temporal only saw the final answer.</p>
+
+  <!-- 3 -->
+  <h2 id="change1">3. Change 1 — Temporal drives the tools <span class="badge b-new">New work</span></h2>
+  <p class="lead">Before, the whole agent ran inside one web request. Now the steps are split apart so Temporal runs them one by one.</p>
+
+  <h3>Before vs. after</h3>
+  <table>
+    <tr><th>Before</th><th>After</th></tr>
+    <tr>
+      <td>Temporal called <b>one</b> web endpoint. The agent searched and answered <i>secretly inside</i> that call. Temporal just displayed the final result.</td>
+      <td>Temporal calls <b>four small steps</b> itself. It decides when the tool runs. Every step shows up separately and can be governed.</td>
+    </tr>
+  </table>
+
+  <h3>The four steps Temporal now runs</h3>
+  <div class="flow">
+    <span class="node">1. get_agent_info</span><span class="arrow">→</span>
+    <span class="node">2. agent_route</span><span class="arrow">→</span>
+    <span class="node">3. execute_tool</span><span class="arrow">→</span>
+    <span class="node">4. agent_generate</span>
+  </div>
+  <ul>
+    <li><b>get_agent_info</b> — <i>Admission check.</i> Is this agent allowed to run, or is it quarantined?</li>
+    <li><b>agent_route</b> — <i>Thinking step.</i> Does this question need a web search, or can the agent just answer?</li>
+    <li><b>execute_tool</b> — <i>The tool call.</i> Temporal itself runs the <code>web_search</code> tool. <b>This is the step Temporal now controls.</b></li>
+    <li><b>agent_generate</b> — <i>Writing step.</i> Turn the search results (or its own knowledge) into a clean answer.</li>
+  </ul>
+
+  <div class="note">
+    <b>The governance gate.</b> Between thinking and the tool call, Temporal checks the <i>autonomy profile</i>:
+    <ul style="margin-bottom:0">
+      <li><b>active</b> → the tool is allowed → Temporal runs <code>web_search</code>, then writes a grounded answer.</li>
+      <li><b>recommendation_only</b> → the tool is <b>blocked</b> → Temporal skips the search and the agent answers from memory.</li>
+    </ul>
+    If a run fails in <code>active</code> mode, Temporal automatically retries once in <code>recommendation_only</code> mode. That's the <i>graceful degradation</i> ladder.
+  </div>
+
+  <h3>How they talk to each other</h3>
+  <p>Each Temporal step opens the MCP server as a small background program (<b>stdio</b> connection), asks it to do one job, and reads the answer back. The MCP server <i>reuses the existing agent code</i> — no agent logic was rewritten, it was just exposed as separate callable tools.</p>
+  <p>Importantly, the server does <b>not</b> hardcode anything about specific agents. Each agent <i>declares its own behaviour</i> (which model it uses, whether it can use a tool, and which tool). The thinking step and the tool step read those declarations — so brand-new agents work with no server changes. See <a href="#addagent" style="color:var(--accent2)">section 11</a>.</p>
+
+  <div class="note">
+    <b>Built on FastMCP.</b> The MCP server uses the <b>FastMCP</b> framework: each tool is a normal Python function marked with <code>@mcp.tool()</code>, and its input schema is generated automatically from the function's type hints — no hand-written schemas. The same file serves <b>both</b> transports: <code>stdio</code> (what Temporal spawns locally) and <code>SSE</code> over HTTP on <code>:8002</code> (for network sharing). Switching to FastMCP changed <i>none</i> of the tools or behaviour — it just removed boilerplate. One side effect: required arguments are now validated by the framework <i>before</i> a tool runs, instead of being checked by hand inside it.</div>
+
+  <!-- 4 -->
+  <h2 id="change2">4. Change 2 — Control surface &amp; cleanup <span class="badge b-new">New work</span></h2>
+  <p class="lead">You asked for a place to type inputs and watch the work happen — not the command line — plus a tidy, professional project layout.</p>
+
+  <h3>What was added</h3>
+  <div class="cards">
+    <div class="card">
+      <h4>A web control page <span class="badge b-new">new</span></h4>
+      <p>A simple page where you pick an agent, type a prompt, hit <b>Run</b>, and watch the four steps light up live. Shows the answer and badges for status, autonomy, and whether a tool was used.</p>
+    </div>
+    <div class="card">
+      <h4>A control API <span class="badge b-new">new</span></h4>
+      <p>A small bridge. The browser can't talk to Temporal directly, so this service takes your prompt, starts the workflow, and reports live progress back to the page.</p>
+    </div>
+    <div class="card">
+      <h4>One clean virtual environment <span class="badge b-chg">changed</span></h4>
+      <p>There used to be two Python environments — one of them empty and unused. Now there is a single <code>.venv</code> with everything in it.</p>
+    </div>
+    <div class="card">
+      <h4>A professional <code>src/</code> layout <span class="badge b-chg">changed</span></h4>
+      <p>All the code moved under one tidy package, <code>src/awcp/</code>. Junk files (empty logs, stray installer, mockup clutter) were cleared out.</p>
+    </div>
+  </div>
+
+  <div class="tip">
+    <b>Why two Python environments existed (your question):</b> no good reason. One (<code>.venv</code>) was <i>empty and abandoned</i>; the other (<code>mcp_venv</code>) quietly held everything despite its name. They are now merged into a single <code>.venv</code>.
+  </div>
+
+  <h3>What did <i>not</i> change <span class="badge b-keep">unchanged</span></h3>
+  <p>The actual behaviour of the agents, the web-search tool, the registry, and the governance workflow logic is the <b>same as before</b>. The reorg only moved files and updated import paths. Nothing about <i>how</i> an agent thinks or answers was altered.</p>
+
+  <!-- 5 -->
+  <h2 id="pieces">5. The pieces, explained</h2>
+  <table>
+    <tr><th>Piece</th><th>Plain-language job</th><th>Where it lives</th></tr>
+    <tr><td><b>Agents</b></td><td>The AI workers — chat, chat+search, cloud models.</td><td><code>src/awcp/agents/</code></td></tr>
+    <tr><td><b>Tools</b></td><td>Things agents can use. Right now: <code>web_search</code>.</td><td><code>src/awcp/tools/</code></td></tr>
+    <tr><td><b>Runtime</b></td><td>Shared plumbing — model client, tool tracking, settings.</td><td><code>src/awcp/runtime/</code></td></tr>
+    <tr><td><b>Registry</b></td><td>The catalog of agents + their permissions and quarantine status.</td><td><code>src/awcp/registry/</code></td></tr>
+    <tr><td><b>MCP server</b></td><td>The worker that performs each small job (think / search / write). Built on <b>FastMCP</b> — tool schemas come from Python type hints, and both transports (stdio + SSE) are wired by the framework.</td><td><code>src/awcp/mcp/server.py</code></td></tr>
+    <tr><td><b>Temporal layer</b></td><td>The boss that orders the steps, applies the gate, and records history.</td><td><code>src/awcp/temporal/</code></td></tr>
+    <tr><td><b>Control API + page</b></td><td>The web surface where <i>you</i> type prompts and watch runs.</td><td><code>src/awcp/control/</code></td></tr>
+    <tr><td><b>Agent service</b></td><td>The older direct REST API (still here, optional).</td><td><code>src/awcp/service.py</code></td></tr>
+  </table>
+
+  <!-- 6 -->
+  <h2 id="folders">6. Folder structure</h2>
+  <pre><code><span class="c-path">awcp_agents/</span>
+├── <span class="c-path">src/awcp/</span>            <span class="c-cmt"># all the code, one tidy package</span>
+│   ├── agents/          <span class="c-cmt"># the AI agents</span>
+│   ├── tools/           <span class="c-cmt"># web_search</span>
+│   ├── runtime/         <span class="c-cmt"># shared plumbing</span>
+│   ├── registry/        <span class="c-cmt"># agent catalog + governance status</span>
+│   ├── mcp/server.py    <span class="c-cmt"># MCP worker (think / search / write)</span>
+│   ├── temporal/        <span class="c-cmt"># the workflow boss</span>
+│   ├── control/         <span class="c-cmt"># NEW: api.py + static/index.html (the UI)</span>
+│   └── service.py       <span class="c-cmt"># older direct REST API (optional)</span>
+├── <span class="c-path">scripts/</span>             <span class="c-cmt"># one-command launchers</span>
+├── <span class="c-path">docs/</span>                <span class="c-cmt"># this guide, the magazine, notes</span>
+├── <span class="c-path">.venv/</span>               <span class="c-cmt"># the single Python environment</span>
+├── requirements.txt
+└── README.md</code></pre>
+
+  <!-- 7 -->
+  <h2 id="run">7. How to run it</h2>
+  <p class="lead">You need <b>three things running</b> at once, each in its own terminal. All commands run from the project root.</p>
+
+  <div class="warn">
+    <b>Prerequisites:</b> <i>Ollama</i> running locally (for the AI models), the <i>Temporal CLI</i> installed, and the project's <code>.venv</code> already built. To rebuild the environment from scratch:
+    <pre style="margin-top:10px;margin-bottom:0"><code><span class="c-cmd">python3</span> <span class="c-flag">-m</span> venv .venv
+<span class="c-cmd">./.venv/bin/pip</span> install <span class="c-flag">-r</span> <span class="c-path">requirements.txt</span></code></pre>
+  </div>
+
+  <h3>Step 1 — Start Temporal (the boss + its dashboard)</h3>
+  <pre><code><span class="c-cmd">temporal</span> server start-dev</code></pre>
+  <p class="small">This starts the workflow engine on <code>localhost:7233</code> and its web dashboard on <code>localhost:8233</code>.</p>
+
+  <h3>Step 2 — Start the worker (does the governed runs)</h3>
+  <pre><code><span class="c-cmd">./scripts/run_worker.sh</span></code></pre>
+  <p class="small">This connects to Temporal and waits for jobs. It launches the MCP worker for each step.</p>
+
+  <h3>Step 3 — Start the control surface (your input page)</h3>
+  <pre><code><span class="c-cmd">./scripts/run_control.sh</span></code></pre>
+  <p class="small">Now open <b>http://localhost:8003</b> in your browser.</p>
+
+  <div class="note">
+    <b>Optional extras</b> (not needed for the UI flow):
+    <ul style="margin-bottom:0">
+      <li><code>./scripts/start_mcp.sh</code> — the MCP server's own dashboard + SSE endpoint on <code>:8002</code>.</li>
+      <li><code>./scripts/start_server.sh</code> — the older direct REST agent API on <code>:8001</code>.</li>
+    </ul>
+  </div>
+
+  <h3>Quick reference — what runs where</h3>
+  <table>
+    <tr><th>Service</th><th>Address</th><th>Needed for the UI?</th></tr>
+    <tr><td>Temporal engine</td><td><code>localhost:7233</code></td><td><b>Yes</b></td></tr>
+    <tr><td>Temporal dashboard</td><td><code>localhost:8233</code></td><td>Nice to have (deep link)</td></tr>
+    <tr><td>Worker</td><td>(no port — background)</td><td><b>Yes</b></td></tr>
+    <tr><td><b>Control surface (the UI)</b></td><td><code>localhost:8003</code></td><td><b>Yes</b></td></tr>
+    <tr><td>MCP dashboard / SSE</td><td><code>localhost:8002</code></td><td>No (optional)</td></tr>
+    <tr><td>Old REST agent API</td><td><code>localhost:8001</code></td><td>No (optional)</td></tr>
+  </table>
+
+  <!-- 8 -->
+  <h2 id="use">8. How to use the UI</h2>
+  <ol>
+    <li>Open <b>http://localhost:8003</b>.</li>
+    <li>Pick an agent (use <code>ollama-search</code> to see a tool call happen).</li>
+    <li>Type a prompt — e.g. <i>"What is the current price of silver per ounce?"</i></li>
+    <li>Click <b>Run governed workflow</b>.</li>
+    <li>Watch the four steps go from <b>pending → scheduled → running → completed</b>.</li>
+    <li>Read the badges: the final status (<b>SUCCESS</b> / <b>DEGRADED</b> / <b>BLOCKED</b>), the autonomy mode, and whether a tool was used.</li>
+    <li>Read the answer at the bottom, and click <b>"View full event history in Temporal"</b> to see every detail in the Temporal dashboard.</li>
+  </ol>
+
+  <div class="tip">
+    <b>What "good" looks like:</b> for a price question on <code>ollama-search</code>, all four steps turn green, the status is <b>SUCCESS</b>, <i>tool used</i> is <b>true</b>, and the answer is based on live search results.
+  </div>
+
+  <!-- 9 -->
+  <h2 id="trouble">9. Troubleshooting</h2>
+  <table>
+    <tr><th>Symptom</th><th>Likely cause &amp; fix</th></tr>
+    <tr><td>Run shows <b>FATAL_FAILURE</b> and a "<code>mcp_venv/bin/python not found</code>" type error</td><td>An <i>old worker</i> from a previous session is still running and grabbing jobs. Stop all workers and start one fresh:<br><code>pkill -f run_worker</code> then <code>./scripts/run_worker.sh</code></td></tr>
+    <tr><td>UI never leaves <b>RUNNING</b></td><td>The worker isn't running, or Temporal isn't up. Check Steps 1 and 2.</td></tr>
+    <tr><td>Answer is empty or odd</td><td><i>Ollama</i> may not be running, or the web search was rate-limited. Make sure Ollama is up and try again.</td></tr>
+    <tr><td>"Address already in use" on <code>:7233</code></td><td>Temporal is already running — that's fine, just reuse it.</td></tr>
+    <tr><td>"Agent is in QUARANTINE" / <b>BLOCKED</b></td><td>Expected behaviour: the governance layer refused an under-instrumented agent. Not a bug.</td></tr>
+  </table>
+
+  <!-- 10 -->
+  <h2 id="table">10. Full change list</h2>
+
+  <h3>New files <span class="badge b-new">added</span></h3>
+  <ul>
+    <li><code>src/awcp/control/api.py</code> — the trigger/status bridge for the browser.</li>
+    <li><code>src/awcp/control/static/index.html</code> — the live control page.</li>
+    <li><code>src/awcp/temporal/activities/mcp_gateway.py</code> — the four small steps Temporal calls.</li>
+    <li><code>scripts/run_worker.sh</code>, <code>scripts/run_control.sh</code> — one-command launchers.</li>
+    <li><code>docs/AWCP_Implementation_Guide.html</code> — this document.</li>
+  </ul>
+
+  <h3>Changed files <span class="badge b-chg">edited</span></h3>
+  <ul>
+    <li><code>src/awcp/mcp/server.py</code> — added three callable tools (<i>route</i>, <i>execute_tool</i>, <i>generate</i>) and a stdio mode so Temporal can drive it. Logs moved to a safe channel. Later <b>migrated to FastMCP</b> (see note below) — same tools, same behaviour, less boilerplate.</li>
+    <li><code>src/awcp/temporal/workflows/agent_execution.py</code> — rewritten to run the four steps with the autonomy gate and the degradation ladder.</li>
+    <li><code>src/awcp/temporal/worker/run_worker.py</code> &amp; <code>config.py</code> — point at the new step functions and the new layout.</li>
+    <li>All other modules — <i>import paths only</i>, updated for the <code>src/awcp/</code> move. No behaviour change.</li>
+    <li><code>.gitignore</code>, run scripts — updated for the single <code>.venv</code> and new paths.</li>
+  </ul>
+
+  <h3>Removed / consolidated <span class="badge b-rem">removed</span></h3>
+  <ul>
+    <li>The empty <code>.venv</code> and the misnamed <code>mcp_venv</code> → merged into one <code>.venv</code>.</li>
+    <li>Junk: empty log files, the stray <code>ngrok.deb</code>, and macOS <code>.DS_Store</code> clutter.</li>
+    <li>The static UI mockup and old notes were moved into <code>docs/</code> to keep the root clean.</li>
+  </ul>
+
+  <!-- 11 -->
+  <h2 id="addagent">11. Adding a new agent <span class="badge b-new">New work</span></h2>
+  <p class="lead">Agents are <b>detected automatically</b>, and each one <i>declares its own behaviour</i> — so you can add a brand-new agent, even a tool-using one, without touching the MCP server or the Temporal workflow.</p>
+
+  <h3>How detection works</h3>
+  <p>On startup, the registry <b>scans the agents folder</b> and registers any file that defines an <code>AGENT</code>. Nothing is hardcoded — drop a file in, and it appears (in the registry, the MCP server, and the UI's agent dropdown). This is <i>startup-time</i> detection, so a new or removed agent shows up after a restart.</p>
+
+  <div class="note">
+    <b>Restart to pick up changes.</b> After adding or removing an agent file, restart the worker (<code>./scripts/run_worker.sh</code>) and the control surface (<code>./scripts/run_control.sh</code>). The MCP worker re-discovers agents every time it runs.
+  </div>
+
+  <h3>What each agent declares</h3>
+  <p>An agent's <code>AGENT = AgentSpec(...)</code> can include these fields. The control plane reads them to drive the run — no per-agent code lives in the server.</p>
+  <table>
+    <tr><th>Field</th><th>What it means</th><th>If left out</th></tr>
+    <tr><td><code>name</code> / <code>route</code></td><td>The agent's id and its REST path.</td><td>Required.</td></tr>
+    <tr><td><code>handler</code></td><td>The function that runs the agent for the direct REST path.</td><td>Required.</td></tr>
+    <tr><td><code>model</code></td><td>The model used to write answers.</td><td>Falls back to a default model.</td></tr>
+    <tr><td><code>router</code></td><td>A small function <code>route(prompt)</code> that returns <code>{"action": "SEARCH" or "ANSWER", "search_query": ...}</code> — i.e. <i>does this need a tool?</i></td><td><b>No tool.</b> The agent always answers directly.</td></tr>
+    <tr><td><code>tool</code></td><td>Which tool to run when the router says SEARCH (e.g. <code>web_search</code>).</td><td>Defaults to <code>web_search</code> if a SEARCH is requested.</td></tr>
+  </table>
+
+  <h3>The rule of thumb</h3>
+  <ul>
+    <li><b>Answer-only agent</b> (like <code>ollama</code>): declare a <code>model</code>, <i>no</i> <code>router</code>. Temporal will always route it to ANSWER and skip the tool step.</li>
+    <li><b>Tool-using agent</b> (like <code>ollama-search</code>): declare a <code>model</code>, a <code>router</code>, and a <code>tool</code>. Temporal will run the tool itself when the router asks for it, then write a grounded answer.</li>
+  </ul>
+
+  <div class="tip">
+    <b>That's the whole point of this change.</b> Previously the server had a special line that only knew about <code>ollama-search</code>. Now the behaviour travels <i>with the agent</i>, so the platform grows by adding files — not by editing the engine.
+  </div>
+
+  <h3>Minimal example (sketch)</h3>
+  <pre><code><span class="c-cmt"># src/awcp/agents/my_agent.py</span>
+<span class="c-cmd">def</span> route(prompt):
+    <span class="c-cmt"># decide if a tool is needed</span>
+    <span class="c-cmd">return</span> {<span class="c-path">"action"</span>: <span class="c-path">"SEARCH"</span>, <span class="c-path">"search_query"</span>: prompt}
+
+AGENT = AgentSpec(
+    name=<span class="c-path">"my-agent"</span>,
+    route=<span class="c-path">"/chat/my-agent"</span>,
+    request_model=PromptRequest,
+    handler=run,
+    runtime=<span class="c-path">"ollama"</span>,
+    model=<span class="c-path">"llama3.1:8b"</span>,   <span class="c-cmt"># used to write the answer</span>
+    router=route,            <span class="c-cmt"># omit this for an answer-only agent</span>
+    tool=<span class="c-path">"web_search"</span>,     <span class="c-cmt"># the tool Temporal will run</span>
+)</code></pre>
+  <p class="small">Restart the worker + control surface, and <code>my-agent</code> shows up in the UI and runs end-to-end — tool calls and all — with no changes to the MCP server or the workflow.</p>
+
+  <hr>
+  <p class="small">Agent Workforce Control Plane · Implementation Guide · Tip: open this file in a browser and use <b>Print → Save as PDF</b> to export a clean, color-preserved copy.</p>
+
+</div>
+</body>
+</html>

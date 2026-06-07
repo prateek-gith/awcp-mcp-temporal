@@ -1,0 +1,75 @@
+# ======================================================================
+# AWCP .gitignore
+# Pushes: source (incl. src/awcp/temporal), scripts, requirements, docs.
+# Ignores: all virtualenvs, caches, secrets, logs, local runtime state,
+# build artifacts, and distributable bundles — nothing tied to a particular
+# machine's running instance is committed.
+# ======================================================================
+
+# --- Python bytecode / build ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg
+*.egg-info/
+.eggs/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+mcp_venv/
+
+# --- Environment / secrets (never commit API keys, e.g. GROQ_API_KEY) ---
+.env
+.env.*
+*.pem
+*.key
+
+# --- Logs ---
+*.log
+logs/
+
+# --- Temporal local runtime / dev-server state ---
+# (the worker/workflow CODE is committed; only a machine's local Temporal data is not)
+*.db
+*.sqlite
+*.sqlite3
+*.sqlite3-journal
+.temporal/
+temporal-data/
+
+# --- Distributable bundles & archives (local artifacts) ---
+*.tar.gz
+*.tgz
+*.zip
+
+# --- ngrok ---
+ngrok
+ngrok.exe
+*.deb
+
+# --- OS cruft ---
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# --- Editors / IDEs ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- Misc temp ---
+temp_uploads/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

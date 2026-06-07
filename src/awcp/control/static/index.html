@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWCP — Live Control Surface</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-base:#0f172a; --bg-surface:#1e293b; --bg-surface-2:#334155;
+    --border:#334155; --border-strong:#475569;
+    --text:#f8fafc; --muted:#94a3b8;
+    --accent:#3b82f6; --accent-hover:#2563eb;
+    --ok:#10b981; --ok-bg:rgba(16,185,129,.12);
+    --warn:#f59e0b; --warn-bg:rgba(245,158,11,.12);
+    --danger:#ef4444; --danger-bg:rgba(239,68,68,.12);
+    --info:#0ea5e9; --info-bg:rgba(14,165,233,.12);
+    --mono:'JetBrains Mono',monospace; --sans:'Inter',system-ui,sans-serif;
+    --radius:8px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg-base);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.5;min-height:100vh}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px 24px}
+  header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);padding-bottom:16px;margin-bottom:24px}
+  h1{font-size:18px;font-weight:700;letter-spacing:.2px}
+  h1 small{display:block;font-size:12px;font-weight:500;color:var(--muted);margin-top:2px}
+  .tag{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:4px 10px;border-radius:100px;background:var(--ok-bg);color:var(--ok)}
+  .grid{display:grid;grid-template-columns:380px 1fr;gap:20px;align-items:start}
+  .card{background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px}
+  .card h2{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:14px}
+  label{display:block;font-size:12px;color:var(--muted);margin:12px 0 6px}
+  select,textarea{width:100%;background:var(--bg-base);border:1px solid var(--border-strong);color:var(--text);border-radius:6px;padding:10px;font-family:inherit;font-size:14px}
+  textarea{min-height:120px;resize:vertical;font-family:var(--mono);font-size:13px}
+  button{margin-top:16px;width:100%;background:var(--accent);color:#fff;border:none;border-radius:6px;padding:11px;font-weight:600;font-size:14px;cursor:pointer}
+  button:hover{background:var(--accent-hover)}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .meta{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px}
+  .badge{font-family:var(--mono);font-size:11px;padding:4px 10px;border-radius:100px;border:1px solid var(--border-strong);color:var(--muted)}
+  .badge.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+  .badge.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}
+  .badge.danger{background:var(--danger-bg);color:var(--danger);border-color:transparent}
+  .badge.info{background:var(--info-bg);color:var(--info);border-color:transparent}
+  .steps{list-style:none;display:flex;flex-direction:column;gap:2px}
+  .step{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--border);border-radius:6px;background:var(--bg-base)}
+  .dot{width:10px;height:10px;border-radius:50%;flex:none;background:var(--border-strong)}
+  .step.scheduled .dot{background:var(--info)}
+  .step.running .dot{background:var(--warn);box-shadow:0 0 0 4px var(--warn-bg)}
+  .step.completed .dot{background:var(--ok)}
+  .step.failed .dot{background:var(--danger)}
+  .step.pending{opacity:.5}
+  .step .name{font-family:var(--mono);font-size:13px}
+  .step .desc{font-size:11px;color:var(--muted)}
+  .step .st{margin-left:auto;font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  .output{margin-top:16px;background:var(--bg-base);border:1px solid var(--border);border-radius:6px;padding:14px;white-space:pre-wrap;font-size:13px;line-height:1.6}
+  .output.empty{color:var(--muted)}
+  a.deep{display:inline-block;margin-top:14px;color:var(--accent);font-size:12px;text-decoration:none}
+  a.deep:hover{text-decoration:underline}
+  .hint{font-size:11px;color:var(--muted);margin-top:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Agent Workforce Control Plane <small>Live Control Surface · governed execution via Temporal + MCP</small></h1>
+    <span class="tag" id="policyTag">Policy: active</span>
+  </header>
+
+  <div class="grid">
+    <!-- Input panel -->
+    <div class="card">
+      <h2>Submit a governed task</h2>
+      <label for="agent">Agent</label>
+      <select id="agent"></select>
+      <label for="prompt">Prompt</label>
+      <textarea id="prompt" placeholder="e.g. current price of gold per gram"></textarea>
+      <button id="runBtn">Run governed workflow</button>
+      <p class="hint">Temporal admits the agent, decides if a tool is needed, calls the tool itself, then synthesizes — each step a separate activity.</p>
+    </div>
+
+    <!-- Live surface -->
+    <div class="card">
+      <h2>Execution timeline</h2>
+      <div class="meta" id="meta">
+        <span class="badge" id="wfBadge">no run yet</span>
+      </div>
+      <ul class="steps" id="steps"></ul>
+      <div class="output empty" id="output">Submit a task to see the governed run.</div>
+      <a class="deep" id="deepLink" style="display:none" target="_blank" rel="noopener">View full event history in Temporal ↗</a>
+    </div>
+  </div>
+</div>
+
+<script>
+const STEP_DESC = {
+  mcp_get_agent_info: "Admission / quarantine gate",
+  mcp_agent_route:    "Reasoning — SEARCH or ANSWER",
+  mcp_execute_tool:   "Tool executor — web_search",
+  mcp_agent_generate: "Generation / synthesis",
+};
+const POLL_MS = 2000;
+let pollTimer = null;
+
+async function loadAgents() {
+  const sel = document.getElementById('agent');
+  try {
+    const agents = await (await fetch('/agents')).json();
+    sel.innerHTML = '';
+    agents.forEach(a => {
+      const o = document.createElement('option');
+      o.value = a.name;
+      o.textContent = `${a.name}${a.status !== 'active' ? ' ('+a.status+')' : ''}`;
+      sel.appendChild(o);
+    });
+  } catch (e) {
+    sel.innerHTML = '<option>could not load agents</option>';
+  }
+}
+
+function renderSteps(steps) {
+  const ul = document.getElementById('steps');
+  ul.innerHTML = '';
+  steps.forEach(s => {
+    const li = document.createElement('li');
+    li.className = 'step ' + s.status;
+    li.innerHTML = `<span class="dot"></span>
+      <span><span class="name">${s.name}</span><br><span class="desc">${STEP_DESC[s.name]||''}</span></span>
+      <span class="st">${s.status}</span>`;
+    ul.appendChild(li);
+  });
+}
+
+function systemActionClass(action) {
+  if (action === 'SUCCESS') return 'ok';
+  if (action === 'DEGRADED_SUCCESS') return 'warn';
+  if (action === 'BLOCKED' || action === 'FATAL_FAILURE') return 'danger';
+  return 'info';
+}
+
+function renderMeta(data) {
+  const meta = document.getElementById('meta');
+  const r = data.result || {};
+  const inner = (r.result) || {};
+  const badges = [];
+  badges.push(`<span class="badge info">${data.status}</span>`);
+  if (r.system_action) badges.push(`<span class="badge ${systemActionClass(r.system_action)}">${r.system_action}</span>`);
+  if (inner.autonomy_profile) badges.push(`<span class="badge">autonomy: ${inner.autonomy_profile}</span>`);
+  if (typeof inner.tool_used === 'boolean')
+    badges.push(`<span class="badge ${inner.tool_used?'ok':''}">tool ${inner.tool_used?'used':'not used'}</span>`);
+  if (inner.action) badges.push(`<span class="badge">route: ${inner.action}</span>`);
+  meta.innerHTML = badges.join('');
+}
+
+function renderOutput(data) {
+  const out = document.getElementById('output');
+  const r = data.result;
+  if (!r) { out.textContent = 'Running…'; out.className = 'output empty'; return; }
+  let text = '';
+  if (r.system_action === 'BLOCKED') text = r.reason || 'Blocked by control plane.';
+  else if (r.system_action === 'FATAL_FAILURE') text = (r.reason || 'Failed') + '\n' + (r.error || '');
+  else text = (r.result && r.result.output) || JSON.stringify(r, null, 2);
+  out.textContent = text;
+  out.className = 'output';
+}
+
+async function poll(workflowId) {
+  let data;
+  try { data = await (await fetch('/status/' + workflowId)).json(); }
+  catch (e) { return; }
+
+  renderMeta(data);
+  renderSteps(data.steps || []);
+  document.getElementById('wfBadge').textContent = workflowId;
+
+  const link = document.getElementById('deepLink');
+  link.href = data.temporal_url; link.style.display = 'inline-block';
+
+  if (data.status === 'RUNNING') {
+    pollTimer = setTimeout(() => poll(workflowId), POLL_MS);
+  } else {
+    renderOutput(data);
+    document.getElementById('runBtn').disabled = false;
+  }
+}
+
+document.getElementById('runBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('runBtn');
+  const agent = document.getElementById('agent').value;
+  const input = document.getElementById('prompt').value;
+  if (!input.trim()) return;
+
+  btn.disabled = true;
+  if (pollTimer) clearTimeout(pollTimer);
+  document.getElementById('output').textContent = 'Starting workflow…';
+  document.getElementById('output').className = 'output empty';
+  renderSteps([]);
+
+  try {
+    const res = await fetch('/run', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({agent_name: agent, input})
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const { workflow_id } = await res.json();
+    poll(workflow_id);
+  } catch (e) {
+    document.getElementById('output').textContent = 'Error: ' + e.message;
+    document.getElementById('output').className = 'output';
+    btn.disabled = false;
+  }
+});
+
+loadAgents();
+</script>
+</body>
+</html>
