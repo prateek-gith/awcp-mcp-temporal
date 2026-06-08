@@ -11,9 +11,15 @@ No agent logic lives here — it reuses the existing registry and Temporal piece
 
 import os
 import logging
+import time
 import uuid
 
-from fastapi import FastAPI, HTTPException
+from dotenv import load_dotenv
+
+# Load .env before any env-var reads (OTel settings, Temporal URL, etc.)
+load_dotenv()
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from temporalio.client import Client, WorkflowExecutionStatus
@@ -24,9 +30,17 @@ from awcp.runtime.tool_runtime import discover_tools
 from awcp.temporal.config import TEMPORAL_SERVER_URL, TASK_QUEUE_NAME
 from awcp.temporal.workflows.agent_execution import AgentGovernanceWorkflow
 from awcp.temporal.workflows.dynamic_ask import DynamicAskWorkflow
+from awcp.observability import (
+    configure_observability,
+    get_tracer,
+    inject_context,
+)
+from awcp.observability.metrics import instruments
+from awcp.observability.evidence import make_evidence_extra, set_governance_attributes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+tracer = get_tracer(__name__)
 
 # Temporal Web UI base (dev server default). Used only to build deep links.
 TEMPORAL_UI_BASE = os.getenv("AWCP_TEMPORAL_UI_BASE", "http://localhost:8233")
@@ -43,6 +57,54 @@ _STEP_SEQUENCE = [
 ]
 
 app = FastAPI(title="AWCP Control Surface")
+configure_observability(component="control-api", fastapi_app=app)
+
+
+@app.middleware("http")
+async def observe_requests(request: Request, call_next):
+    start = time.perf_counter()
+    route = request.url.path
+    method = request.method
+    metrics = instruments()
+
+    logger.info(
+        "http_request_started",
+        extra=make_evidence_extra(method=method, route=route),
+    )
+    try:
+        response = await call_next(request)
+        duration = time.perf_counter() - start
+        metric_attrs = {
+            "method": method,
+            "endpoint": route,
+            "status_code": str(response.status_code),
+        }
+        metrics["http_requests"].add(1, metric_attrs)
+        metrics["http_duration"].record(duration, metric_attrs)
+        if response.status_code >= 500:
+            metrics["http_errors"].add(1, metric_attrs)
+        logger.info(
+            "http_request_completed",
+            extra=make_evidence_extra(
+                method=method,
+                route=route,
+                status_code=str(response.status_code),
+                duration_seconds=round(duration, 4),
+            ),
+        )
+        return response
+    except Exception:
+        duration = time.perf_counter() - start
+        error_attrs = {"method": method, "endpoint": route, "status_code": "exception"}
+        metrics["http_errors"].add(1, error_attrs)
+        metrics["http_duration"].record(duration, error_attrs)
+        logger.exception(
+            "http_request_failed",
+            extra=make_evidence_extra(
+                method=method, route=route, duration_seconds=round(duration, 4)
+            ),
+        )
+        raise
 
 # Populate the in-memory registry so the agent picker has data (same bootstrap
 # pattern as the MCP server and the FastAPI agent service).
@@ -65,6 +127,10 @@ class RunRequest(BaseModel):
 
 class AskRequest(BaseModel):
     query: str
+    # Governance fields (AWCP Magazine §01 Operating Model — Agent Registry)
+    agent_id: str = "dynamic"          # identifies which agent or profile is answering
+    policy_mode: str = "active"         # active | recommendation_only | safe_mode
+    autonomy_mode: str = "active"       # mirrors policy_mode for display
 
 
 @app.get("/agents")
@@ -97,26 +163,80 @@ async def run(req: RunRequest) -> dict:
 
 @app.post("/ask")
 async def ask(req: AskRequest) -> dict:
-    """Run a dynamic MCP-backed Temporal workflow for any user query."""
+    """Run a dynamic MCP-backed Temporal workflow for any user query.
+
+    Governance fields passed through (AWCP Magazine §01 Operating Model):
+      agent_id, policy_mode, autonomy_mode → workflow → every activity span.
+    Evidence returned:
+      replay_context block with context_hash, decision_path, degradation_mode.
+    """
     query = req.query.strip()
     if not query:
         raise HTTPException(status_code=400, detail="query must not be empty")
 
     workflow_id = f"awcp-ask-{uuid.uuid4().hex[:8]}"
-    logger.info("Starting /ask workflow_id=%s query=%r", workflow_id, query)
+    agent_id = req.agent_id
+    policy_mode = req.policy_mode
+    autonomy_mode = req.autonomy_mode
+
+    logger.info(
+        "workflow_starting",
+        extra=make_evidence_extra(
+            workflow_id=workflow_id,
+            agent_id=agent_id,
+            policy_mode=policy_mode,
+            autonomy_mode=autonomy_mode,
+            query_chars=len(query),
+        ),
+    )
+    workflow_attrs = {
+        "workflow_id": workflow_id,
+        "workflow_type": "DynamicAskWorkflow",
+        "task_queue": TASK_QUEUE_NAME,
+    }
+    start = time.perf_counter()
 
     try:
-        client = await _client()
+        with tracer.start_as_current_span("workflow_start") as span:
+            span.set_attribute("temporal.workflow_id", workflow_id)
+            span.set_attribute("temporal.workflow_type", "DynamicAskWorkflow")
+            span.set_attribute("temporal.task_queue", TASK_QUEUE_NAME)
+            # Governance span attributes (G7 fix — agent registry metadata in root span)
+            set_governance_attributes(
+                span,
+                workflow_id=workflow_id,
+                agent_id=agent_id,
+                policy_mode=policy_mode,
+                autonomy_mode=autonomy_mode,
+            )
 
-        handle = await client.start_workflow(
-            DynamicAskWorkflow.run,
-            {"query": query},
-            id=workflow_id,
-            task_queue=TASK_QUEUE_NAME,
-        )
-        result = await handle.result()
+            client = await _client()
+
+            handle = await client.start_workflow(
+                DynamicAskWorkflow.run,
+                {
+                    "query": query,
+                    "otel_context": inject_context(),
+                    # Governance metadata propagated into workflow and all activities
+                    "agent_id": agent_id,
+                    "policy_mode": policy_mode,
+                    "autonomy_mode": autonomy_mode,
+                },
+                id=workflow_id,
+                task_queue=TASK_QUEUE_NAME,
+            )
+            instruments()["workflow_executions"].add(1, workflow_attrs)
+            result = await handle.result()
     except Exception as e:
-        logger.exception("/ask workflow failed workflow_id=%s", workflow_id)
+        instruments()["workflow_failures"].add(1, workflow_attrs)
+        logger.exception(
+            "workflow_failed",
+            extra=make_evidence_extra(
+                workflow_id=workflow_id,
+                agent_id=agent_id,
+                failure_reason=str(e)[:200],
+            ),
+        )
         raise HTTPException(
             status_code=502,
             detail={
@@ -127,16 +247,28 @@ async def ask(req: AskRequest) -> dict:
             },
         ) from e
 
+    duration = time.perf_counter() - start
+    instruments()["workflow_duration"].record(duration, workflow_attrs)
+    replay_ctx = result.get("replay_context", {})
     logger.info(
-        "Completed /ask workflow_id=%s synthesis_status=%s",
-        workflow_id,
-        result.get("synthesis_status"),
+        "workflow_completed",
+        extra=make_evidence_extra(
+            workflow_id=workflow_id,
+            agent_id=agent_id,
+            synthesis_status=result.get("synthesis_status"),
+            degradation_mode=replay_ctx.get("degradation_mode"),
+            decision_path=replay_ctx.get("decision_path"),
+            context_hash=replay_ctx.get("context_hash"),
+            duration_seconds=round(duration, 4),
+        ),
     )
 
     return {
         "workflow_id": workflow_id,
         "temporal_url": _temporal_url(workflow_id),
         "result": result,
+        # Governance evidence surface — allows API consumers to correlate runs
+        "replay_context": replay_ctx,
     }
 
 

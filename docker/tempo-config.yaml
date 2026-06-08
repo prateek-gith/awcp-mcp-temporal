@@ -1,0 +1,51 @@
+# =============================================================================
+# Grafana Tempo — distributed tracing backend configuration
+# =============================================================================
+
+# Address the HTTP query API (used by Grafana data source).
+server:
+  http_listen_port: 3200
+
+# Store trace data on local filesystem (good for dev; swap to S3/GCS in prod).
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+
+# Accept traces via OTLP gRPC from the OTel Collector.
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+# Compactor merges small trace blocks in the background to keep storage lean.
+compactor:
+  compaction:
+    block_retention: 48h   # keep traces for 2 days in dev
+
+# Query frontend tuning.
+querier:
+  max_concurrent_queries: 10
+
+# Ingester — controls trace block flushing.
+ingester:
+  lifecycler:
+    ring:
+      replication_factor: 1
+      kvstore:
+        store: inmemory
+  max_block_duration: 5m
+
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+  storage:
+    path: /var/tempo/generator/wal

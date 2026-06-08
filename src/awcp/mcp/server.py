@@ -4,12 +4,17 @@ import json
 import logging
 import os
 import sys
+import time
 from typing import Annotated, Any
 
+from dotenv import load_dotenv
 from pydantic import Field
 from mcp.server.fastmcp import FastMCP
 from starlette.responses import HTMLResponse
 from starlette.routing import Route
+
+# Load .env so OTel settings are available before configure_observability()
+load_dotenv()
 
 # AWCP Integration Imports
 from awcp.registry.service import build_registry
@@ -24,15 +29,19 @@ from awcp.runtime.config import SEARCH_MODEL
 from awcp.runtime.json_utils import extract_json
 from awcp.runtime.schemas import PromptRequest
 from awcp.agents.ollama_search import build_search_answer_prompt
+from awcp.observability import configure_observability, get_tracer
+from awcp.observability.metrics import instruments
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Initialise OTel for the MCP server process.
+configure_observability(component="mcp-server")
+tracer = get_tracer(__name__)
+
 # Initialize the FastMCP server. FastMCP auto-generates each tool's JSON schema
 # from the function signature/type hints, and wires both stdio and SSE transports.
 mcp = FastMCP("awcp-control-plane")
-
-# Initialize AWCP Components.
 # NOTE: logs go to stderr so they never corrupt the stdio JSON-RPC stream
 # (stdout is the protocol channel when this server runs over stdio).
 print("Initializing AWCP Control Plane components...", file=sys.stderr)
@@ -211,11 +220,88 @@ def execute_tool(
     tool_name: Annotated[str, Field(description="Registered tool name, e.g. web_search")],
     tool_input: Annotated[dict, Field(description="Arguments passed to the tool")],
 ) -> str:
-    try:
-        result = run_tool(tool_name, tool_input or {})
-        return str(result)
-    except Exception as e:
-        return f"Error executing tool '{tool_name}': {str(e)}"
+    """Dispatch to a dynamically registered AWCP runtime tool.
+
+    Instrumented: every call creates an OTel span and records mcp_tool_* metrics
+    so Tempo + Prometheus capture per-tool latency, success, and failure rates
+    without hardcoding any tool name.
+    """
+    m = instruments()
+    tool_attrs = {"tool_name": tool_name}
+    m["mcp_tool_calls"].add(1, tool_attrs)
+    start = time.perf_counter()
+
+    logger.info("mcp_execute_tool_started tool_name=%s", tool_name)
+
+    with tracer.start_as_current_span("mcp.execute_tool") as span:
+        span.set_attribute("mcp.tool_name", tool_name)
+        try:
+            result = run_tool(tool_name, tool_input or {})
+            duration = time.perf_counter() - start
+            m["mcp_tool_duration"].record(duration, tool_attrs)
+            logger.info(
+                "mcp_execute_tool_completed tool_name=%s duration_seconds=%.4f",
+                tool_name, duration,
+            )
+            return str(result)
+        except Exception as exc:
+            duration = time.perf_counter() - start
+            span.record_exception(exc)
+            try:
+                from opentelemetry.trace import Status, StatusCode
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+            except ImportError:
+                pass
+            m["mcp_tool_failures"].add(1, tool_attrs)
+            m["mcp_tool_duration"].record(duration, tool_attrs)
+            logger.exception("mcp_execute_tool_failed tool_name=%s", tool_name)
+            return f"Error executing tool '{tool_name}': {str(exc)}"
+
+
+@mcp.tool(
+    description=(
+        "Search arxiv.org for academic research papers. Use this tool when the "
+        "user asks about research, papers, studies, preprints, scientific "
+        "literature, machine learning models, or any academic / scientific topic. "
+        "Returns paper titles, authors, abstracts, publication dates, and PDF URLs."
+    )
+)
+def search_arxiv(
+    query: Annotated[str, Field(description="Research topic or keywords to search for on arxiv")],
+    max_results: Annotated[int, Field(description="Maximum number of papers to return (1-10)")] = 5,
+) -> str:
+    """Fetch academic papers from arxiv.org matching the query."""
+    from awcp.tools.arxiv_search import run_arxiv_search
+    m = instruments()
+    tool_attrs = {"tool_name": "arxiv_search"}
+    m["mcp_tool_calls"].add(1, tool_attrs)
+    start = time.perf_counter()
+    logger.info("mcp_search_arxiv_started query=%r max_results=%s", query, max_results)
+    with tracer.start_as_current_span("mcp.search_arxiv") as span:
+        span.set_attribute("mcp.tool_name", "arxiv_search")
+        span.set_attribute("arxiv.query", query)
+        span.set_attribute("arxiv.max_results", max_results)
+        try:
+            result = run_arxiv_search(query=query, max_results=max_results)
+            duration = time.perf_counter() - start
+            m["mcp_tool_duration"].record(duration, tool_attrs)
+            logger.info(
+                "mcp_search_arxiv_completed query=%r duration_seconds=%.4f output_chars=%s",
+                query, duration, len(result),
+            )
+            return result
+        except Exception as exc:
+            duration = time.perf_counter() - start
+            span.record_exception(exc)
+            try:
+                from opentelemetry.trace import Status, StatusCode
+                span.set_status(Status(StatusCode.ERROR, str(exc)))
+            except ImportError:
+                pass
+            m["mcp_tool_failures"].add(1, tool_attrs)
+            m["mcp_tool_duration"].record(duration, tool_attrs)
+            logger.exception("mcp_search_arxiv_failed query=%r", query)
+            return f"Error searching arxiv: {str(exc)}"
 
 
 @mcp.tool(
@@ -280,10 +366,15 @@ You are the first-pass answerer in a durable Temporal workflow.
 Return ONLY JSON with this schema:
 {{"final": true|false, "answer": string, "reason": string}}
 
-Set final=false when the user asks for live, current, recent, price, news,
-weather, market, ranking, date-sensitive, or externally verifiable facts.
-Set final=true only when the answer can be safely produced from stable general
-knowledge, reasoning, writing, math, or coding knowledge.
+Set final=false when the user asks for:
+- live, current, recent, price, news, weather, market, ranking, or date-sensitive facts
+- any research papers, academic studies, preprints, scientific literature, or arxiv topics
+- anything about a specific ML model, algorithm paper, or scientific findings
+- externally verifiable facts that require looking something up
+
+Set final=true ONLY when the answer can be safely produced from stable general
+knowledge, reasoning, writing, math, or coding knowledge — and does NOT require
+checking any external source or research database.
 
 User query:
 {query}
